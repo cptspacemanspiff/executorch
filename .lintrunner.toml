@@ -294,22 +294,24 @@ include_patterns = [
     'build/**/*.py',
     'codegen/**/*.py',
     # 'devtools/**/*.py',
+    'devtools/visualization/**/*.py',
     'docs/**/*.py',
     # 'examples/**/*.py',
     # 'exir/**/*.py',
     # 'extension/**/*.py',
     'kernels/**/*.py',
-    # 'profiler/**/*.py',
+    'profiler/**/*.py',
     'runtime/**/*.py',
     'scripts/**/*.py',
-    # 'test/**/*.py',
-    # 'util/**/*.py',
+    'test/**/*.py',
+    'util/**/*.py',
     '*.py',
 ]
 exclude_patterns = [
     'third-party/**',
     '**/third-party/**',
     'scripts/check_binary_dependencies.py',
+    'profiler/test/test_profiler_e2e.py',
 ]
 command = [
     'python',
@@ -320,6 +322,7 @@ command = [
     '--config=.mypy.ini',
     '--show-disable',
     '--',
+    '--explicit-package-bases',
     '@{{PATHSFILE}}'
 ]
 init_command = [

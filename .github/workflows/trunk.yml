@@ -132,6 +132,9 @@ jobs:
   test-arm-backend-delegation:
     name: test-arm-backend-delegation
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    permissions:
+      id-token: write
+      contents: read
     with:
       runner: linux.2xlarge
       docker-image: executorch-ubuntu-22.04-arm-sdk
@@ -146,18 +149,22 @@ jobs:
         source .ci/scripts/utils.sh
         install_executorch
 
-        install_arm
+        .ci/scripts/setup-arm-baremetal-tools.sh
 
         # Increase number of files user can monitor to bypass buck failures.
         # Hopefully this is high enough for this setup.
         sudo sysctl fs.inotify.max_user_watches=1048576 # 1024 * 1024
 
         # Test ethos-u delegate examples with run.sh
-        PYTHON_EXECUTABLE=python bash examples/arm/run.sh examples/arm/ethos-u-scratch/
+        backends/arm/test/test_arm_baremetal.sh test_run_ethosu_fvp
+
 
   test-arm-reference-delegation:
     name: test-arm-reference-delegation
     uses: pytorch/test-infra/.github/workflows/linux_job_v2.yml@main
+    permissions:
+      id-token: write
+      contents: read
     with:
       runner: linux.2xlarge
       docker-image: executorch-ubuntu-22.04-arm-sdk
@@ -172,10 +179,10 @@ jobs:
         source .ci/scripts/utils.sh
         install_executorch
 
-        install_arm
+        .ci/scripts/setup-arm-baremetal-tools.sh
 
-        # Run arm unit tests
-        pytest -c /dev/null -v -n auto --cov=./ --cov-report=xml backends/arm/test
+        # Run arm unit tests using the simulator
+        backends/arm/test/test_arm_baremetal.sh test_pytest_ethosu_fvp
 
   test-coreml-delegate:
     name: test-coreml-delegate
