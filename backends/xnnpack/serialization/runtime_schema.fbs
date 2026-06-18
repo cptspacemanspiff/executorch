@@ -159,6 +159,7 @@ union XNodeUnion {
   XNNSin: _XNNNode1x1,
   XNNCopy: _XNNNode1x1,
   XNNCos: _XNNNode1x1,
+  XNNStaticMean,
 }
 
 union XValueUnion {
@@ -301,6 +302,15 @@ table XNNStaticSlice {
   num_dims:uint;
   offsets:[uint];
   sizes:[uint];
+  input_id:uint;
+  output_id:uint;
+  flags:uint;
+}
+
+// Reduction (mean) over arbitrary axes, lowered to xnn_define_static_reduce.
+table XNNStaticMean {
+  num_reduction_axes:uint;
+  reduction_axes:[uint];
   input_id:uint;
   output_id:uint;
   flags:uint;

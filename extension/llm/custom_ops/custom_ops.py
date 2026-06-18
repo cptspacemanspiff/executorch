@@ -201,7 +201,11 @@ def _validate_update_cache_params(
         value.dtype == cache.dtype
     ), f"Expected value and cache to be of the same type but got value type {value.dtype} and cache type {cache.dtype}"
 
-    for i in [0, 2, 3]:
+    # Dim 0 is the batch: for dynamic-batch export the value carries the runtime batch B which may be
+    # <= the cache's allocated (max) batch N. The C++ update loop writes value.size(0) rows into the
+    # first B cache rows via the cache batch stride, so only require B <= N here (not equality).
+    torch._check(value.size(0) <= cache.size(0))
+    for i in [2, 3]:
         assert value.size(i) == cache.size(
             i
         ), f"Expected value and cache to have same size in dimension {i} but got {value.size(i)} and {cache.size(i)}"

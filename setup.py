@@ -54,7 +54,6 @@ import importlib.util
 import logging
 import os
 import re
-import shutil
 import site
 import subprocess
 import sys
@@ -917,12 +916,6 @@ class CustomBuild(build):
             cmake_configuration_args += ["-DEXECUTORCH_BUILD_OPENVINO=ON"]
 
         with Buck2EnvironmentFixer():
-            # Generate the cmake cache from scratch to ensure that the cache state
-            # is predictable.
-            if os.path.exists(cmake_cache_dir):
-                log.info(f"clearing {cmake_cache_dir}")
-                shutil.rmtree(cmake_cache_dir)
-
             subprocess.run(
                 [
                     "cmake",

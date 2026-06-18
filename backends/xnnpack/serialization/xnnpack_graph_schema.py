@@ -213,6 +213,15 @@ class XNNStaticSlice:
 
 
 @dataclass
+class XNNStaticMean:
+    num_reduction_axes: int
+    reduction_axes: List[int]
+    input_id: int
+    output_id: int
+    flags: int
+
+
+@dataclass
 class XNNClamp(XNNNode1x1):
     pass
 
@@ -421,6 +430,7 @@ XNodeUnion = Union[
     XNNSin,
     XNNCopy,
     XNNCos,
+    XNNStaticMean,
 ]
 
 

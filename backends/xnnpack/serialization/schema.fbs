@@ -155,6 +155,7 @@ union XNodeUnion {
   XNNSin: _XNNNode1x1,
   XNNCopy: _XNNNode1x1,
   XNNCos: _XNNNode1x1,
+  XNNStaticMean,
 }
 
 union XValueUnion {
@@ -297,6 +298,17 @@ table XNNStaticSlice {
   num_dims:uint;
   offsets:[uint];
   sizes:[uint];
+  input_id:uint;
+  output_id:uint;
+  flags:uint;
+}
+
+// Reduction (mean) over arbitrary axes, lowered to xnn_define_static_reduce.
+// Unlike XNNGlobalAvgPooling2d this handles non-4D inputs and last-dim means
+// (e.g. RMSNorm's mean over the channel dim). flags carries XNN_FLAG_KEEP_DIMS.
+table XNNStaticMean {
+  num_reduction_axes:uint;
+  reduction_axes:[uint];
   input_id:uint;
   output_id:uint;
   flags:uint;

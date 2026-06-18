@@ -17,7 +17,7 @@ from executorch.backends.xnnpack.utils.quant_utils import (
     is_tagged_as_implicit_q_dq,
     tag_as_implicit_q_dq,
 )
-from executorch.backends.xnnpack.utils.utils import is_param_node
+from executorch.backends.xnnpack.utils.utils import is_param_node, normalize_mean_dims
 from executorch.exir.dialects._ops import ops as exir_ops
 from executorch.exir.pass_base import PassResult
 
@@ -159,7 +159,30 @@ class ChannelsLastTaggedReshapePass(XNNPACKPass):
     def _is_nhwc(self, tensor: torch.Tensor) -> bool:
         return ChannelsLastTaggedReshapePass._is_nhwc_tensor(tensor)
 
+    @staticmethod
+    def _mean_is_global_avg_pool(node: torch.fx.Node) -> bool:
+        # mean.dim only needs NHWC for the Global Average Pooling special case:
+        # a 4D input reduced over the innermost spatial dims with keepdim. The
+        # general reduce path (e.g. RMSNorm's last-dim mean on a 3D tensor) keeps
+        # its natural layout and must NOT be forced to NHWC.
+        input_node = node.args[0]
+        if not isinstance(input_node, torch.fx.Node) or "val" not in input_node.meta:
+            return False
+        input_rank = input_node.meta["val"].dim()
+        if input_rank != 4:
+            return False
+        keepdim = len(node.args) >= 3 and bool(node.args[2])
+        if not keepdim:
+            return False
+        try:
+            dims = normalize_mean_dims(node.args[1], input_rank)
+        except ValueError:
+            return False
+        return sorted(dims) == [2, 3]
+
     def requires_nhwc_input(self, node: torch.fx.Node) -> bool:
+        if node.target == exir_ops.edge.aten.mean.dim:
+            return self._mean_is_global_avg_pool(node)
         return node.target in self.memory_sensitive_ops_nhwc
 
     def requires_nchw_inputs(self, node: torch.fx.Node) -> bool:

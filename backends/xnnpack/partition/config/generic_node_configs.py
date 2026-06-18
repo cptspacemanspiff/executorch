@@ -531,42 +531,25 @@ class MeanDimConfig(GenericNodePartitionerConfig):
 
     def check_constraints(self, node: torch.fx.Node, ep: ExportedProgram) -> bool:
         """
-        Mean Dim currently only supports averaging 4D tensors across the innermost
-        dimensions
+        mean.dim is delegated either as Global Average Pooling (the 4D / dims=[2,3]
+        / keepdim case) or as a generic static reduce (any rank/axes, e.g. RMSNorm's
+        mean over the last dim). The only hard restriction is an explicit dtype, which
+        neither XNNPACK path can encode.
         """
         if not self.check_common_constraints(node, ep):
             return False
 
-        input_rank = get_input_node(node, 0).meta["val"].dim()
-        if input_rank != 4:
-            why(
-                node,
-                reason=f"mean.dim only supports averaging 4D tensors, got tensor of rank {input_rank}",
-            )
-            return False
-
-        # This path lowers mean.dim to XNNPACK Global Average Pooling, which
-        # cannot encode an explicit dtype override.
+        # Neither the Global Average Pooling nor the static-reduce path can encode an
+        # explicit output dtype override.
         if node.kwargs.get("dtype") is not None:
             why(node, reason="mean.dim does not support dtype")
             return False
 
-        keepdim = len(node.args) >= 3 and bool(node.args[2])
+        input_rank = get_input_node(node, 0).meta["val"].dim()
         try:
-            dims = normalize_mean_dims(node.args[1], input_rank)
+            normalize_mean_dims(node.args[1], input_rank)
         except ValueError as error:
             why(node, reason=f"mean.dim has invalid dims: {error}")
-            return False
-
-        if sorted(dims) != [2, 3]:
-            why(
-                node,
-                reason="mean.dim only supports averaging 4D tensors across the innermost dimensions",
-            )
-            return False
-
-        if not keepdim:
-            why(node, reason="mean.dim only supports keepdim=True")
             return False
 
         return True
