@@ -97,9 +97,13 @@ Tensor& update_cache_impl(
     const optional<Tensor>& indices = nullopt) {
   (void)ctx;
 
+  // Dynamic-batch: the runtime batch B (= value.size(0)) may be <= the cache's allocated (max)
+  // batch N. The copy loops below iterate value.size(0) rows and write them into the first B cache
+  // rows via the cache batch stride, so only require B <= N (rows [B, N) are left untouched/stale
+  // and are never read by custom_sdpa, which loops over the query batch B).
   ET_CHECK_MSG(
-      value.size(0) == cache.size(0),
-      "projected_value batch size (%zd) should be equal to the cache batch size (%zd).",
+      value.size(0) <= cache.size(0),
+      "projected_value batch size (%zd) should be <= the cache batch size (%zd).",
       value.size(0),
       cache.size(0));
   ET_CHECK_MSG(
