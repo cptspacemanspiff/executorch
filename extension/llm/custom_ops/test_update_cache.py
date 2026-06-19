@@ -431,3 +431,51 @@ class UpdateQuantizedKVCacheTest(unittest.TestCase):
         self._update_and_validate(
             k, v, k_scales, v_scales, k_zero_points, v_zero_points, start_pos
         )
+
+    def test_sub_batch_update_start_pos(self):
+        """Cache is allocated at the max batch N, but a decode step only updates
+        the first B (< N) rows via start_pos. Rows [B, N) must stay untouched."""
+        max_batch, run_batch, start_pos = 4, 2, 3
+        num_heads, head_dim = self.num_heads, self.head_dim
+
+        @run_in_subprocess
+        def run_and_validate(max_batch, run_batch, start_pos, num_heads, head_dim):
+            torch.manual_seed(123)
+            cache = torch.zeros((max_batch, 10, num_heads, head_dim), dtype=torch.int8)
+            value = torch.randint(
+                1, 50, (run_batch, 1, num_heads, head_dim), dtype=torch.int8
+            )
+            torch.ops.llama.update_cache(value, cache, start_pos)
+            # First B rows updated at start_pos.
+            assert torch.equal(cache[:run_batch, start_pos], value[:, 0])
+            # Rows [B, N) are never touched.
+            assert torch.count_nonzero(cache[run_batch:]) == 0
+            # Other positions in the updated rows stay zero.
+            assert torch.count_nonzero(cache[:run_batch, :start_pos]) == 0
+            assert torch.count_nonzero(cache[:run_batch, start_pos + 1 :]) == 0
+
+        run_and_validate(max_batch, run_batch, start_pos, num_heads, head_dim)
+
+    def test_sub_batch_update_with_indices(self):
+        """Same sub-batch scenario (B < N) for the indices-based update path."""
+        max_batch, run_batch = 4, 2
+        num_heads, head_dim = self.num_heads, self.head_dim
+
+        @run_in_subprocess
+        def run_and_validate(max_batch, run_batch, num_heads, head_dim):
+            torch.manual_seed(123)
+            cache = torch.zeros((max_batch, 10, num_heads, head_dim), dtype=torch.int8)
+            value = torch.randint(
+                1, 50, (run_batch, 3, num_heads, head_dim), dtype=torch.int8
+            )
+            indices = torch.tensor([[1, 4, 7], [2, 5, 8]], dtype=torch.int64)
+            torch.ops.llama.update_cache_with_indices(value, cache, 0, indices)
+            ref = torch.zeros_like(cache)
+            for b in range(run_batch):
+                for s in range(indices.size(1)):
+                    ref[b, indices[b, s]] = value[b, s]
+            assert torch.equal(cache, ref)
+            # Rows [B, N) are never touched.
+            assert torch.count_nonzero(cache[run_batch:]) == 0
+
+        run_and_validate(max_batch, run_batch, num_heads, head_dim)

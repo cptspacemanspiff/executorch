@@ -4,6 +4,7 @@
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
 
+import multiprocessing
 import unittest
 
 import torch
@@ -14,6 +15,23 @@ from executorch.examples.models.llama.source_transformation.custom_kv_cache impo
     QuantizedCacheType,
     QuantizedKVCache,
 )
+
+
+def run_in_subprocess(target):
+    """
+    Run the target in a separate subprocess so a cpp runtime::abort
+    (e.g. from an ET_CHECK failure) surfaces as a nonzero exit code
+    rather than killing the test runner.
+    """
+
+    def wrapper(*args, **kwargs):
+        p = multiprocessing.Process(target=target, args=args, kwargs=kwargs)
+        p.start()
+        p.join()
+        if p.exitcode != 0:
+            raise Exception(f"Subprocess failed with exit code {p.exitcode}")
+
+    return wrapper
 
 
 class QuantizedKVCacheTest(unittest.TestCase):
@@ -124,3 +142,46 @@ class QuantizedKVCacheTest(unittest.TestCase):
         self._test_simple_update_fetch(
             is_dynamic_shape=True, use_custom_update_cache_op=True
         )
+
+    def test_sub_batch_update(self):
+        """Quantized cache allocated at max batch N=4, but a decode step updates
+        only the first B=2 rows. The updated rows must dequantize back to the
+        input (within quant tolerance) and rows [B, N) must stay untouched."""
+
+        @run_in_subprocess
+        def run_and_validate():
+            torch.manual_seed(42)
+            max_batch, n_heads, max_ctx, head_dim = 4, 8, 16, 32
+            run_batch = 2
+            input_pos = torch.tensor([5], dtype=torch.long)
+
+            kv_cache = KVCache(
+                max_batch, max_ctx, n_heads, head_dim, False, dtype=torch.float32
+            )
+            qcache = QuantizedKVCache.from_float(
+                kv_cache,
+                QuantizedCacheType.AffineAsymmetric,
+                use_custom_update_cache_op=True,
+            )
+
+            # k_val, v_val are [B, H, S, D] with the runtime sub-batch B < N.
+            k = torch.rand((run_batch, n_heads, 1, head_dim))
+            v = torch.rand((run_batch, n_heads, 1, head_dim))
+            k_out, v_out = qcache.update(input_pos, k, v)
+
+            # Output keeps the full allocated batch N.
+            assert k_out.shape[0] == max_batch
+
+            # The B updated rows dequantize back to the input at the written pos.
+            torch.testing.assert_close(
+                k_out[:run_batch, :, input_pos, :], k, rtol=1e-2, atol=1e-2
+            )
+            torch.testing.assert_close(
+                v_out[:run_batch, :, input_pos, :], v, rtol=1e-2, atol=1e-2
+            )
+
+            # Rows [B, N) of the underlying int8 caches are never touched.
+            assert torch.count_nonzero(qcache.k_cache[run_batch:]) == 0
+            assert torch.count_nonzero(qcache.v_cache[run_batch:]) == 0
+
+        run_and_validate()
